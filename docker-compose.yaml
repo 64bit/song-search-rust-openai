@@ -1,0 +1,15 @@
+version: '3'
+services:
+  postgres:
+    image: ankane/pgvector
+    environment:
+      POSTGRES_DB: songs
+      POSTGRES_PASSWORD: async-openai
+      POSTGRES_USER: async-openai
+    volumes:
+      - database:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+
+volumes:
+  database: {}

@@ -1,5 +1,6 @@
 use std::io::Write;
 
+use ansi_term::Colour::Yellow;
 use anyhow::Result;
 use async_openai::Client;
 use song_search::Song;
@@ -26,13 +27,13 @@ async fn main() -> Result<()> {
 
     loop {
         // 3. Ask user for search query
-        print!("Query: ");
+        print!("\n{}: ", Yellow.underline().paint("Query"));
         std::io::stdout().flush()?;
         let mut search = String::new();
         std::io::stdin().read_line(&mut search)?;
 
         // 4. Get Embedding from OpenAI and Search for nearest neighbors in DB
-        let songs = Song::query(&search, 5, &openai_client, &pg_pool).await?;
+        let songs = Song::query(&search, 10, &openai_client, &pg_pool).await?;
 
         // 5. Display result to user
         for song in songs {

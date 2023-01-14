@@ -1,7 +1,11 @@
 use std::{fmt::Display, path::Path};
 
+use ansi_term::Style;
 use anyhow::Result;
-use async_openai::{types::CreateEmbeddingRequestArgs, Client};
+use async_openai::{
+    types::{CreateEmbeddingRequestArgs, CreateEmbeddingResponse},
+    Client,
+};
 use serde::Deserialize;
 use sqlx::{PgPool, Row};
 use tracing::info;
@@ -20,7 +24,22 @@ pub struct Song {
 
 impl Display for Song {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} by {} / {}", self.title, self.artist, self.album,)
+        if self.album.is_empty() {
+            write!(
+                f,
+                "{} by {}",
+                Style::new().bold().paint(&self.title),
+                Style::new().dimmed().paint(&self.artist)
+            )
+        } else {
+            write!(
+                f,
+                "{} by {} / {}",
+                Style::new().bold().paint(&self.title),
+                Style::new().dimmed().paint(&self.artist),
+                Style::new().italic().paint(&self.album)
+            )
+        }
     }
 }
 
@@ -63,7 +82,8 @@ impl Song {
         Ok(songs)
     }
 
-    /// Append artist + title + album + lyrics
+    /// Append artist + title + album + lyrics as input text for
+    /// Song embedding
     pub fn embedding_text(&self) -> String {
         [&self.artist, &self.title, &self.album, &self.lyric]
             .map(|s| s.to_owned())
@@ -73,9 +93,9 @@ impl Song {
             .to_lowercase()
     }
 
-    /// Get and save embedding
-    pub async fn get_and_save_embedding(&self, client: &Client, pg_pool: &PgPool) -> Result<()> {
-        let response = client
+    /// Get embedding from OpenAI for this Song
+    pub async fn get_embedding(&self, openai_client: &Client) -> Result<CreateEmbeddingResponse> {
+        let response = openai_client
             .embeddings()
             .create(
                 CreateEmbeddingRequestArgs::default()
@@ -90,23 +110,27 @@ impl Song {
             self.title, self.artist, response.usage.total_tokens
         );
 
-        // Insert embedding into DB
-        let pgvector = pgvector::Vector::from(response.data[0].embedding.clone());
+        Ok(response)
+    }
 
+    /// Save embedding for this Song in DB
+    pub async fn save_embedding(&self, pg_pool: &PgPool, pgvector: pgvector::Vector) -> Result<()> {
         sqlx::query("INSERT INTO songs (artist, title, album, lyric, embedding) VALUES ($1, $2, $3, $4, $5)")
             .bind(self.artist.clone())
             .bind(self.title.clone())
             .bind(self.album.clone())
             .bind(self.lyric.clone())
-            .bind(pgvector) // only single embedding expected
+            .bind(pgvector)
             .execute(pg_pool)
             .await?;
 
         Ok(())
     }
 
-    /// Search nearest embeddings using given query
+    /// Search `n` nearest neighbors for given query in DB
     pub async fn query(query: &str, n: i8, client: &Client, pg_pool: &PgPool) -> Result<Vec<Song>> {
+        let query = query.trim().to_lowercase();
+
         // Get embedding from OpenAI
         let response = client
             .embeddings()
@@ -118,13 +142,13 @@ impl Song {
             )
             .await?;
 
-        // Search for nearest neighbors in database
         let pgvector = pgvector::Vector::from(response.data[0].embedding.clone());
 
+        // Search for nearest neighbors in database
         Ok(sqlx::query(
             "SELECT artist, title, album, lyric FROM songs ORDER BY embedding <-> $1 LIMIT $2::int",
         )
-        .bind(pgvector) // only single embedding expected
+        .bind(pgvector)
         .bind(n)
         .fetch_all(pg_pool)
         .await?

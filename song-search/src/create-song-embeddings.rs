@@ -22,7 +22,7 @@ async fn main() -> Result<()> {
     // 1. Create OpenAI Client
     let backoff = ExponentialBackoffBuilder::new()
         .with_initial_interval(Duration::from_secs(15))
-        .with_randomization_factor(0.1)
+        .with_randomization_factor(0.2)
         .with_multiplier(3.0)
         .build();
 
@@ -62,8 +62,7 @@ async fn main() -> Result<()> {
             // Only allow limit in-flight request at a time to "rate limit" API and DB calls and limit spawned tasks.
             let permit = semaphore.clone().acquire_owned().await?;
             let handle = tokio::spawn(async move {
-                // 6. If song doesn't exist in DB, get its
-                //    embedding and save it to DB
+                // 6. If song doesn't exist in DB process it
                 if sqlx::query(
                     "SELECT * FROM songs WHERE artist = $1 AND title = $2 AND album = $3 LIMIT 1",
                 )
@@ -79,15 +78,27 @@ async fn main() -> Result<()> {
                         &song.title, &song.artist
                     );
 
-                    let _ = song
-                        .get_and_save_embedding(&client, &pool)
-                        .await
-                        .map_err(|e| {
+                    // 7. Get embedding from OpenAI
+                    let response = song.get_embedding(&client).await.map_err(|e| {
+                        error!(
+                            "Failed to get embedding for {} by {}: {e}",
+                            song.title, song.artist
+                        )
+                    });
+
+                    // 8. Store embedding in DB
+                    if response.is_ok() {
+                        // Only single embedding is expected in response
+                        let embedding =
+                            pgvector::Vector::from(response.unwrap().data[0].embedding.clone());
+
+                        let _ = song.save_embedding(&pool, embedding).await.map_err(|e| {
                             error!(
-                                "Failed to get and save embedding for {} by {}: {e}",
+                                "Failed to save embedding for {} by {}: {e}",
                                 song.title, song.artist
                             )
                         });
+                    }
                 }
                 drop(permit);
             });

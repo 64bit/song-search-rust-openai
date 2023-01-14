@@ -1,0 +1,11 @@
+version: '3'
+services:
+  postgres:
+    image: gigapotential/song-search-rust-openai:0.2.0
+    command: postgres -c 'max_connections=2000'
+    environment:
+      POSTGRES_DB: songs
+      POSTGRES_PASSWORD: async-openai
+      POSTGRES_USER: async-openai
+    ports:
+      - 5432:5432

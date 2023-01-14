@@ -1,0 +1,16 @@
+version: '3'
+services:
+  postgres:
+    image: ankane/pgvector:v0.4.0
+    command: postgres -c 'max_connections=2000'
+    environment:
+      POSTGRES_DB: songs
+      POSTGRES_PASSWORD: async-openai
+      POSTGRES_USER: async-openai
+    volumes:
+      - database:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+
+volumes:
+  database: {}

@@ -62,7 +62,7 @@ impl Song {
 
         sqlx::query(table_query).execute(pg_pool).await?;
 
-        // Create Index
+        // Create Index for Cosine Similarity
         let index_query =
             "CREATE INDEX IF NOT EXISTS songs_idx ON songs USING ivfflat (embedding vector_cosine_ops);";
 
